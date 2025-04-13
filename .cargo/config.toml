@@ -1,0 +1,11 @@
+# Target specification ensures these settings apply only when building for this architecture.
+[target.x86_64-unknown-linux-gnu]
+
+# Tell rustc to use 'clang' (from nativeBuildInputs) as the linker driver.
+linker = "clang"
+
+# Pass flags to rustc (-C flag).
+# 'link-arg' passes the subsequent argument directly to the linker driver ('clang').
+# '-fuse-ld=mold' tells clang to use the 'mold' executable as the actual linker.
+# Nix ensures the 'mold' found in PATH is the wrapped version from 'mold-wrapped'.
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
