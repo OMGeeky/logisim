@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 bevy = { version = "0.15.0", features = ["bevy_dev_tools"] }
+iyes_perf_ui = "0.4.0"
 
 
 
