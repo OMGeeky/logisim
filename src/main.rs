@@ -1,9 +1,12 @@
 use bevy::prelude::*;
 
+mod fps_counter;
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(HelloPlugin)
+        .add_plugins((
+            DefaultPlugins,
+            fps_counter::FpsCounterPlugin,
+        ))
         .run();
 }
 //region first app
