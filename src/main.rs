@@ -66,7 +66,7 @@ mod camera {
     }
 
     fn handle_pan(
-        mut camera: Single<(&mut Transform), With<Camera2d>>,
+        mut camera: Single<&mut Transform, With<Camera2d>>,
         move_event: Res<AccumulatedMouseMotion>,
     ) {
         camera.translation.x -= move_event.delta.x;

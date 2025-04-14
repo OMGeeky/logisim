@@ -123,7 +123,6 @@ fn render_blocks(
         let center = transform.translation().xy();
         let half_size = size / 2.0;
         let top = center.y + half_size.y;
-        // let bottom = center.y - half_size.y;
         let left = center.x - half_size.x;
         let right = center.x + half_size.x;
         gizmos.rect_2d(center, size, block_visual.color);
@@ -191,8 +190,8 @@ fn draw_connection(
     );
 }
 
-fn scale_labels(mut labels: Query<(&mut Transform), With<CanvasText>>, canvas: Res<Canvas>) {
-    for (mut transform) in labels.iter_mut() {
+fn scale_labels(mut labels: Query<&mut Transform, With<CanvasText>>, canvas: Res<Canvas>) {
+    for mut transform in labels.iter_mut() {
         transform.scale = Vec3::splat(canvas.zoom) * LABEL_SCALING_FACTOR;
     }
 }
