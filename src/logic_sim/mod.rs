@@ -45,12 +45,9 @@ pub struct BlockVisuals {
 #[derive(Component, Debug)]
 pub struct ConnectionReference(Entity);
 #[derive(Component, Debug)]
-pub struct WireReference(Entity);
-#[derive(Component, Debug)]
 pub struct Block {
     inputs: Vec<ConnectionReference>,
     outputs: Vec<ConnectionReference>,
-    wires: Vec<WireReference>,
 }
 #[derive(Component, Debug)]
 #[require(Transform)]
@@ -149,9 +146,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
             ConnectionReference(input1),
             ConnectionReference(output1),
             ConnectionReference(output2),
+            ConnectionReference(output4),
         ],
     };
-    let wire1 = commands.spawn(wire1).id();
+    commands.spawn(wire1);
     commands
         .spawn(BlockBundle {
             block_visuals: BlockVisuals {
@@ -166,7 +164,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ConnectionReference(output3),
                     ConnectionReference(output4),
                 ],
-                wires: vec![WireReference(wire1)],
             },
             global_transform: GlobalTransform::default(),
             transform: Transform::default(),
@@ -174,12 +171,11 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         .with_child(BlockLabelBundle::new("AND", size, text_font));
 }
 fn render_blocks(
-    blocks: Query<(&BlockVisuals, &Block, &Transform)>,
-    connections: Query<&mut Connection>,
+    blocks: Query<(&BlockVisuals, &Transform)>,
     canvas: Res<Canvas>,
     mut gizmos: Gizmos,
 ) {
-    for (block_visual, block, transform) in blocks.iter() {
+    for (block_visual, transform) in blocks.iter() {
         let size = block_visual.size.as_vec2() * canvas.zoom;
         let center = transform.translation.xy();
         gizmos.rect_2d(center, size, block_visual.color);
@@ -202,7 +198,6 @@ fn update_connection_positions(
         update_connection_position(
             Vec2::new(left, top),
             size.y,
-            &canvas,
             block.inputs.iter(),
             &mut connections,
             block.inputs.len(),
@@ -210,7 +205,6 @@ fn update_connection_positions(
         update_connection_position(
             Vec2::new(right, top),
             size.y,
-            &canvas,
             block.outputs.iter(),
             &mut connections,
             block.outputs.len(),
@@ -220,7 +214,6 @@ fn update_connection_positions(
 fn update_connection_position<'a>(
     pos: Vec2,
     available_height: f32,
-    canvas: &Canvas,
     connection_refs: impl Iterator<Item = &'a ConnectionReference>,
     connections: &mut Query<&mut Transform, With<Connection>>,
     connections_count: usize,
@@ -277,22 +270,27 @@ fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: 
     );
 }
 fn draw_wires(
-    wires: Query<(&Wire, &GlobalTransform)>,
+    wires: Query<&Wire>,
     connections: Query<&GlobalTransform, With<Connection>>,
     mut gizmos: Gizmos,
 ) {
-    for (wire, transform) in wires.iter() {
-        let wire_root = transform.translation().xy();
-        for connection in wire
+    for wire in wires.iter() {
+        let connection_positions: Vec<Vec2> = wire
             .connections
             .iter()
-            .map(|connection| connections.get(connection.0))
-        {
-            if let Ok(connection) = connection {
-                gizmos.line_2d(wire_root, connection.translation().xy(), WHITE);
-            } else {
-                println!("connection not found: {:?}", connection);
-            }
+            .filter_map(|connection| {
+                connections
+                    .get(connection.0)
+                    .map(|transform| transform.translation().xy())
+                    .ok()
+            })
+            .collect();
+        let average_pos = connection_positions
+            .iter()
+            .fold(Vec2::ZERO, |sum, pos| sum + pos)
+            / connection_positions.len() as f32;
+        for connection_pos in connection_positions {
+            gizmos.line_2d(average_pos, connection_pos, WHITE);
         }
     }
 }
@@ -304,7 +302,7 @@ fn scale_labels(mut labels: Query<&mut Transform, With<CanvasText>>, canvas: Res
 }
 
 fn update_connection_states(
-    wires: Query<(&Wire)>,
+    wires: Query<&Wire>,
     mut connections: Query<(
         &mut Connection,
         Option<&InputConnection>,
