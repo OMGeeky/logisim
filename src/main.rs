@@ -11,7 +11,7 @@ fn main() {
         .add_plugins((
             DefaultPlugins,
             CameraPlugin,
-            // fps_counter::FpsCounterPlugin,
+            fps_counter::SimpleFpsCounterPlugin,
             // ShapeFollowPlugin,
             LogicSimPlugin,
         ))
