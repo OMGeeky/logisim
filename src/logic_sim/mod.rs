@@ -2,6 +2,7 @@ use crate::camera::Canvas;
 use bevy::color::palettes::basic::{GREEN, RED, WHITE};
 use bevy::prelude::*;
 use bevy::text::TextBounds;
+use std::ops::BitOr;
 
 const LABEL_SCALING_FACTOR: f32 = 0.2;
 
@@ -89,7 +90,142 @@ impl ConnectionValues {
             ConnectionValues::X256(_, _) => 256,
         }
     }
-    /// Gets the value at the given index using bit-shifting
+    //region inner_x
+    fn inner_u128(self) -> u128 {
+        if self.len() < 128 {
+            return self.inner_u64() as u128;
+        }
+        match self {
+            ConnectionValues::Single(_)
+            | ConnectionValues::HalfByte(_, _, _, _)
+            | ConnectionValues::Byte(_)
+            | ConnectionValues::X16(_)
+            | ConnectionValues::X32(_)
+            | ConnectionValues::X64(_) => unreachable!(),
+            ConnectionValues::X128(b) => b,
+            ConnectionValues::X256(b, _) => b,
+        }
+    }
+    fn inner_u64(self) -> u64 {
+        if self.len() < 64 {
+            return self.inner_u32() as u64;
+        }
+        match self {
+            ConnectionValues::Single(_)
+            | ConnectionValues::HalfByte(_, _, _, _)
+            | ConnectionValues::Byte(_)
+            | ConnectionValues::X16(_)
+            | ConnectionValues::X32(_) => unreachable!(),
+            ConnectionValues::X64(b) => b,
+            ConnectionValues::X128(b) => b as u64,
+            ConnectionValues::X256(b, _) => b as u64,
+        }
+    }
+    fn inner_u32(self) -> u32 {
+        if self.len() < 32 {
+            return self.inner_u16() as u32;
+        }
+        match self {
+            ConnectionValues::Single(_)
+            | ConnectionValues::HalfByte(_, _, _, _)
+            | ConnectionValues::Byte(_)
+            | ConnectionValues::X16(_) => unreachable!(),
+            ConnectionValues::X32(b) => b as u32,
+            ConnectionValues::X64(b) => b as u32,
+            ConnectionValues::X128(b) => b as u32,
+            ConnectionValues::X256(b, _) => b as u32,
+        }
+    }
+    fn inner_u16(self) -> u16 {
+        if self.len() < 16 {
+            return self.inner_u8() as u16;
+        }
+        match self {
+            ConnectionValues::Single(_)
+            | ConnectionValues::HalfByte(_, _, _, _)
+            | ConnectionValues::Byte(_) => unreachable!(),
+            ConnectionValues::X16(b) => b,
+            ConnectionValues::X32(b) => b as u16,
+            ConnectionValues::X64(b) => b as u16,
+            ConnectionValues::X128(b) => b as u16,
+            ConnectionValues::X256(b, _) => b as u16,
+        }
+    }
+    fn inner_u8(self) -> u8 {
+        match self {
+            ConnectionValues::Single(b) => b as u8,
+            ConnectionValues::HalfByte(b0, b1, b2, b3) => {
+                (b0 as u8) | (b1 as u8) << 1 | (b2 as u8) << 2 | (b3 as u8) << 3
+            }
+            ConnectionValues::Byte(b) => b,
+            ConnectionValues::X16(b) => b as u8,
+            ConnectionValues::X32(b) => b as u8,
+            ConnectionValues::X64(b) => b as u8,
+            ConnectionValues::X128(b) => b as u8,
+            ConnectionValues::X256(b, _) => b as u8,
+        }
+    }
+    //endregion
+
+    pub(crate) fn set_by_index(&mut self, index: usize, value: bool) {
+        if index >= self.len() {
+            warn!("Tried writing out of bounds. Index: '{index}' ConnectionValues: '{self:?}'");
+            return; // reasonable fallback for out of bounds writing
+        }
+        match self {
+            ConnectionValues::Single(b) => *b = value,
+            ConnectionValues::HalfByte(b0, b1, b2, b3) => match index {
+                0 => *b0 = value,
+                1 => *b1 = value,
+                2 => *b2 = value,
+                3 => *b3 = value,
+                _ => unreachable!(), // Should be caught by the initial length check
+            },
+            ConnectionValues::Byte(byte) => {
+                if value {
+                    *byte |= 1 << index;
+                } else {
+                    *byte &= !(1 << index);
+                }
+            }
+            ConnectionValues::X16(val) => {
+                if value {
+                    *val |= 1 << index;
+                } else {
+                    *val &= !(1 << index);
+                }
+            }
+            ConnectionValues::X32(val) => {
+                if value {
+                    *val |= 1 << index;
+                } else {
+                    *val &= !(1 << index);
+                }
+            }
+            ConnectionValues::X64(val) => {
+                if value {
+                    *val |= 1 << index;
+                } else {
+                    *val &= !(1 << index);
+                }
+            }
+            ConnectionValues::X128(val) => {
+                if value {
+                    *val |= 1 << index;
+                } else {
+                    *val &= !(1 << index);
+                }
+            }
+            ConnectionValues::X256(val1, val2) => {
+                let val = if index < 128 { val1 } else { val2 };
+                if value {
+                    *val |= 1 << index;
+                } else {
+                    *val &= !(1 << index);
+                }
+            }
+        }
+    }
     pub(crate) fn get_by_index(self, index: usize) -> bool {
         if index >= self.len() {
             warn!("Tried reading out of bounds. Index: '{index}' ConnectionValues: '{self:?}'");
@@ -109,13 +245,7 @@ impl ConnectionValues {
             ConnectionValues::X16(val) => (val >> index) & 1 != 0,
             ConnectionValues::X32(val) => (val >> index) & 1 != 0,
             ConnectionValues::X64(val) => (val >> index) & 1 != 0,
-            ConnectionValues::X128(val) => {
-                if index < 64 {
-                    (val >> index) & 1 != 0
-                } else {
-                    (val >> (index - 64)) & 1 != 0
-                }
-            }
+            ConnectionValues::X128(val) => (val >> index) & 1 != 0,
             ConnectionValues::X256(val1, val2) => {
                 if index < 128 {
                     (val1 >> index) & 1 != 0
@@ -127,6 +257,70 @@ impl ConnectionValues {
     }
 }
 
+impl BitOr for ConnectionValues {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        let (left, right);
+        if self.len() > rhs.len() {
+            left = self;
+            right = rhs;
+        } else {
+            left = rhs;
+            right = self;
+        }
+        assert!(left.len() >= right.len());
+
+        match left {
+            ConnectionValues::Single(left) => match right {
+                ConnectionValues::Single(right) => ConnectionValues::Single(left | right),
+                _ => unreachable!("The right side should be smaller or equal than the left side"),
+            },
+            ConnectionValues::HalfByte(left0, left1, left2, left3) => match right {
+                ConnectionValues::Single(right) => {
+                    ConnectionValues::HalfByte(left0 | right, left1, left2, left3)
+                }
+                ConnectionValues::HalfByte(right0, right1, right2, right3) => {
+                    ConnectionValues::HalfByte(
+                        left0 | right0,
+                        left1 | right1,
+                        left2 | right2,
+                        left3 | right3,
+                    )
+                }
+                _ => unreachable!("The right side should be smaller or equal than the left side"),
+            },
+            ConnectionValues::Byte(left) => {
+                let right = right.inner_u8();
+                ConnectionValues::Byte(left | right)
+            }
+            ConnectionValues::X16(left) => {
+                let right = right.inner_u16();
+                ConnectionValues::X16(left | right)
+            }
+            ConnectionValues::X32(left) => {
+                let right = right.inner_u32();
+                ConnectionValues::X32(left | right)
+            }
+            ConnectionValues::X64(left) => {
+                let right = right.inner_u64();
+                ConnectionValues::X64(left | right)
+            }
+            ConnectionValues::X128(left) => {
+                let right = right.inner_u128();
+                ConnectionValues::X128(left | right)
+            }
+            ConnectionValues::X256(left0, left1) => {
+                if let ConnectionValues::X256(right1, right2) = right {
+                    ConnectionValues::X256(left0 | right1, left1 | right2)
+                } else {
+                    let right = right.inner_u128();
+                    ConnectionValues::X256(left0 | right, left1)
+                }
+            }
+        }
+    }
+}
 pub struct LogicSimPlugin;
 impl Plugin for LogicSimPlugin {
     fn build(&self, app: &mut App) {
@@ -156,7 +350,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let input1 = (
         InputConnection,
         Connection {
-            values: ConnectionValues::HalfByte(false, false, false, false),
+            values: ConnectionValues::HalfByte(false, true, false, true),
         },
     );
     let input2 = (
@@ -378,10 +572,7 @@ fn update_connection_states(
                     None
                 }
             })
-            .fold(ConnectionValues::Single(false), |sum, con| {
-                con
-                // todo!("combine input values")
-            });
+            .fold(ConnectionValues::Single(false), BitOr::bitor);
         for output in wire.connections.iter() {
             if let Ok((mut output, _, output_marker)) = connections.get_mut(output.0) {
                 if output_marker.is_none() {
