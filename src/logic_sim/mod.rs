@@ -62,8 +62,69 @@ pub struct OutputConnection;
 #[derive(Component, Debug)]
 #[require(Transform)]
 pub struct Connection {
-    size: u32,
-    values: Vec<bool>,
+    values: ConnectionValues,
+}
+#[derive(Debug, Clone, Copy)]
+pub enum ConnectionValues {
+    Single(bool),
+    HalfByte(bool, bool, bool, bool),
+    Byte(u8),
+    X16(u16),
+    X32(u32),
+    X64(u64),
+    X128(u128),
+    X256(u128, u128),
+}
+
+impl ConnectionValues {
+    pub fn len(&self) -> usize {
+        match self {
+            ConnectionValues::Single(_) => 1,
+            ConnectionValues::HalfByte(_, _, _, _) => 4,
+            ConnectionValues::Byte(_) => 8,
+            ConnectionValues::X16(_) => 16,
+            ConnectionValues::X32(_) => 32,
+            ConnectionValues::X64(_) => 64,
+            ConnectionValues::X128(_) => 128,
+            ConnectionValues::X256(_, _) => 256,
+        }
+    }
+    /// Gets the value at the given index using bit-shifting
+    pub(crate) fn get_by_index(self, index: usize) -> bool {
+        if index >= self.len() {
+            warn!("Tried reading out of bounds. Index: '{index}' ConnectionValues: '{self:?}'");
+            return false; // reasonable fallback for out of bounds reading
+        }
+
+        match self {
+            ConnectionValues::Single(b) => b,
+            ConnectionValues::HalfByte(b0, b1, b2, b3) => match index {
+                0 => b0,
+                1 => b1,
+                2 => b2,
+                3 => b3,
+                _ => unreachable!(), // Should be caught by the initial length check
+            },
+            ConnectionValues::Byte(byte) => (byte >> index) & 1 != 0,
+            ConnectionValues::X16(val) => (val >> index) & 1 != 0,
+            ConnectionValues::X32(val) => (val >> index) & 1 != 0,
+            ConnectionValues::X64(val) => (val >> index) & 1 != 0,
+            ConnectionValues::X128(val) => {
+                if index < 64 {
+                    (val >> index) & 1 != 0
+                } else {
+                    (val >> (index - 64)) & 1 != 0
+                }
+            }
+            ConnectionValues::X256(val1, val2) => {
+                if index < 128 {
+                    (val1 >> index) & 1 != 0
+                } else {
+                    (val2 >> (index - 128)) & 1 != 0
+                }
+            }
+        }
+    }
 }
 
 pub struct LogicSimPlugin;
@@ -95,43 +156,37 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let input1 = (
         InputConnection,
         Connection {
-            size: 4,
-            values: vec![false, false, false, false],
+            values: ConnectionValues::HalfByte(false, false, false, false),
         },
     );
     let input2 = (
         InputConnection,
         Connection {
-            size: 4,
-            values: vec![false, false, true, false],
+            values: ConnectionValues::HalfByte(true, false, false, true),
         },
     );
     let output1 = (
         OutputConnection,
         Connection {
-            size: 4,
-            values: vec![false, false, false, true],
+            values: ConnectionValues::HalfByte(false, false, true, false),
         },
     );
     let output2 = (
         OutputConnection,
         Connection {
-            size: 4,
-            values: vec![false, false, false, false],
+            values: ConnectionValues::HalfByte(false, false, true, false),
         },
     );
     let output3 = (
         OutputConnection,
         Connection {
-            size: 4,
-            values: vec![false, false, false, true],
+            values: ConnectionValues::HalfByte(false, false, true, false),
         },
     );
     let output4 = (
         OutputConnection,
         Connection {
-            size: 4,
-            values: vec![true, true, true, true],
+            values: ConnectionValues::HalfByte(false, true, false, false),
         },
     );
     let input1 = commands.spawn(input1).id();
@@ -243,8 +298,9 @@ fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: 
     let connection_bit_size = CONNECTION_BIT_SIZE * canvas.zoom;
     let connection_bit_half_size = connection_bit_size * 0.5;
 
-    let rows = if connection.size > 8 { 2 } else { 1 };
-    let columns = (connection.size as f32 / rows as f32).ceil() as u32;
+    let size = connection.values.len() as u32;
+    let rows = if size > 8 { 2 } else { 1 };
+    let columns = (size as f32 / rows as f32).ceil() as u32;
 
     let half_offset = Vec2::new(columns as f32, rows as f32) * (connection_bit_size / 2.0);
     let one_size = Vec2::new(connection_bit_size, connection_bit_size);
@@ -253,13 +309,13 @@ fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: 
     'rows: for y in 0..rows {
         for x in 0..columns {
             let index = y * columns + x;
-            if index >= connection.size {
+            if index >= size {
                 break 'rows;
             }
             let pos = pos + Vec2::new(x as f32, (rows - y - 1) as f32) * connection_bit_size
                 - half_offset
                 + half_one_size;
-            let value = connection.values[index as usize];
+            let value = connection.values.get_by_index(index as usize);
             let color = if value { GREEN } else { RED };
             gizmos.circle_2d(pos, connection_bit_half_size, color);
         }
@@ -311,32 +367,31 @@ fn update_connection_states(
     )>,
 ) {
     for wire in wires.iter() {
-        let input_value = wire
+        let input_value: ConnectionValues = wire
             .connections
             .iter()
             .filter_map(|connection| {
                 let conn = connections.get(connection.0).unwrap();
-                if conn.1.is_some() { Some(conn.0) } else { None }
+                if conn.1.is_some() {
+                    Some(conn.0.values)
+                } else {
+                    None
+                }
             })
-            .fold(Vec::new(), |mut x, y| {
-                binary_or_slice(&mut x, &y.values); //combine input values
-                x
+            .fold(ConnectionValues::Single(false), |sum, con| {
+                con
+                // todo!("combine input values")
             });
         for output in wire.connections.iter() {
             if let Ok((mut output, _, output_marker)) = connections.get_mut(output.0) {
                 if output_marker.is_none() {
                     continue;
                 }
-                output.values = input_value.clone();
+                output.values = input_value;
             }
         }
     }
 }
-fn binary_or_slice(a: &mut Vec<bool>, b: &[bool]) {
-    if a.len() < b.len() {
-        a.resize(b.len(), false);
-    }
-    for (a, b) in a.iter_mut().zip(b.iter()) {
-        *a |= *b;
-    }
-}
+
+#[cfg(test)]
+mod tests;
