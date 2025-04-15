@@ -310,22 +310,32 @@ fn update_connection_states(
     )>,
 ) {
     for wire in wires.iter() {
-        let inputs = wire.connections.iter().find_map(|connection| {
-            let conn = connections.get(connection.0).unwrap();
-            if conn.1.is_some() { Some(conn.0) } else { None }
-        });
-        //TODO: implement multiple inputs on one wire (use filter_map instead of find_map and then combine the values (binary-or?))
-
-        if let Some(input) = inputs {
-            let values = input.values.clone();
-            for output in wire.connections.iter() {
-                if let Ok((mut output, _, output_marker)) = connections.get_mut(output.0) {
-                    if output_marker.is_none() {
-                        continue;
-                    }
-                    output.values = values.clone();
+        let input_value = wire
+            .connections
+            .iter()
+            .filter_map(|connection| {
+                let conn = connections.get(connection.0).unwrap();
+                if conn.1.is_some() { Some(conn.0) } else { None }
+            })
+            .fold(Vec::new(), |mut x, y| {
+                binary_or_slice(&mut x, &y.values); //combine input values
+                x
+            });
+        for output in wire.connections.iter() {
+            if let Ok((mut output, _, output_marker)) = connections.get_mut(output.0) {
+                if output_marker.is_none() {
+                    continue;
                 }
+                output.values = input_value.clone();
             }
         }
+    }
+}
+fn binary_or_slice(a: &mut Vec<bool>, b: &[bool]) {
+    if a.len() < b.len() {
+        a.resize(b.len(), false);
+    }
+    for (a, b) in a.iter_mut().zip(b.iter()) {
+        *a |= *b;
     }
 }
