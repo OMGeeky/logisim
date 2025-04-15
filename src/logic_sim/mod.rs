@@ -259,7 +259,7 @@ fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: 
                 - half_offset
                 + half_one_size;
             let value = connection.values[index as usize];
-            let color = if value { RED } else { GREEN };
+            let color = if value { GREEN } else { RED };
             gizmos.circle_2d(pos, connection_bit_half_size, color);
         }
     }
