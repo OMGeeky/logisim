@@ -95,43 +95,43 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let input1 = (
         InputConnection,
         Connection {
-            size: 1,
-            values: vec![false],
+            size: 4,
+            values: vec![false, false, false, false],
         },
     );
     let input2 = (
         InputConnection,
         Connection {
-            size: 1,
-            values: vec![true],
+            size: 4,
+            values: vec![false, false, true, false],
         },
     );
     let output1 = (
         OutputConnection,
         Connection {
-            size: 1,
-            values: vec![false],
+            size: 4,
+            values: vec![false, false, false, true],
         },
     );
     let output2 = (
         OutputConnection,
         Connection {
-            size: 1,
-            values: vec![true],
+            size: 4,
+            values: vec![false, false, false, false],
         },
     );
     let output3 = (
         OutputConnection,
         Connection {
-            size: 1,
-            values: vec![true],
+            size: 4,
+            values: vec![false, false, false, true],
         },
     );
     let output4 = (
         OutputConnection,
         Connection {
-            size: 1,
-            values: vec![false],
+            size: 4,
+            values: vec![true, true, true, true],
         },
     );
     let input1 = commands.spawn(input1).id();
@@ -144,6 +144,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let wire1 = Wire {
         connections: vec![
             ConnectionReference(input1),
+            ConnectionReference(input2),
             ConnectionReference(output1),
             ConnectionReference(output2),
             ConnectionReference(output4),
