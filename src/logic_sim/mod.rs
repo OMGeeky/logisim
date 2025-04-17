@@ -6,6 +6,32 @@ use std::ops::BitOr;
 
 const LABEL_SCALING_FACTOR: f32 = 0.2;
 
+#[derive(Resource, Debug, Clone)]
+pub struct BlockDefinition {
+    id: usize,
+    pos: Vec2,
+    size: IVec2,
+    name: String,
+    color: Color,
+    inner_blocks: Vec<BlockDefinition>,
+    wires: Vec<WireDefinition>,
+    inputs: Vec<ConnectionDefinition>,
+    outputs: Vec<ConnectionDefinition>,
+}
+#[derive(Resource, Debug, Clone)]
+pub struct WireDefinition {
+    connections: Vec<ConnectionDefinitionRef>,
+}
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct ConnectionDefinition {
+    id: usize,
+    value: ConnectionValues,
+}
+#[derive(Resource, Debug, Clone, Copy)]
+pub struct ConnectionDefinitionRef {
+    parent_block: usize,
+    id: usize,
+}
 #[derive(Bundle, Debug)]
 pub struct BlockBundle {
     block: Block,
@@ -43,7 +69,7 @@ pub struct BlockVisuals {
     size: IVec2,
     color: Color,
 }
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Copy, Clone)]
 pub struct ConnectionReference(Entity);
 #[derive(Component, Debug)]
 pub struct Block {
@@ -324,101 +350,174 @@ impl BitOr for ConnectionValues {
 pub struct LogicSimPlugin;
 impl Plugin for LogicSimPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(
-            Update,
-            (
-                (update_connection_positions, draw_connections).chain(),
-                render_blocks,
-                scale_labels,
-                draw_wires,
-                update_connection_states,
-            ),
-        );
+        app
+            //hi
+            // .insert_resource(get_sample_block())
+            .add_systems(Startup, setup)
+            .add_systems(Update, spawn_block_resources)
+            .add_systems(
+                Update,
+                (
+                    (update_connection_positions, draw_connections).chain(),
+                    render_blocks,
+                    scale_labels,
+                    draw_wires,
+                    update_connection_states,
+                ),
+            );
     }
 }
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn get_sample_block() -> BlockDefinition {
+    BlockDefinition {
+        id: 1,
+        pos: Vec2::new(0.0, 0.0),
+        size: IVec2::new(50, 80),
+        name: "AND".to_string(),
+        color: Color::from(RED),
+        inner_blocks: vec![],
+        wires: vec![WireDefinition {
+            connections: vec![
+                ConnectionDefinitionRef {
+                    parent_block: 1,
+                    id: 1,
+                },
+                ConnectionDefinitionRef {
+                    parent_block: 1,
+                    id: 2,
+                },
+                ConnectionDefinitionRef {
+                    parent_block: 1,
+                    id: 3,
+                },
+                ConnectionDefinitionRef {
+                    parent_block: 1,
+                    id: 4,
+                },
+                ConnectionDefinitionRef {
+                    parent_block: 1,
+                    id: 6,
+                },
+            ],
+        }],
+        inputs: vec![
+            ConnectionDefinition {
+                id: 1,
+                value: ConnectionValues::HalfByte(false, true, false, true),
+            },
+            ConnectionDefinition {
+                id: 2,
+                value: ConnectionValues::HalfByte(true, false, false, true),
+            },
+        ],
+        outputs: vec![
+            ConnectionDefinition {
+                id: 3,
+                value: ConnectionValues::HalfByte(false, false, true, false),
+            },
+            ConnectionDefinition {
+                id: 4,
+                value: ConnectionValues::HalfByte(false, false, true, false),
+            },
+            ConnectionDefinition {
+                id: 5,
+                value: ConnectionValues::Byte(0b0101_1010),
+            },
+            ConnectionDefinition {
+                id: 6,
+                value: ConnectionValues::HalfByte(false, true, false, false),
+            },
+        ],
+    }
+}
+fn setup(commands: Commands, asset_server: Res<AssetServer>) {
+    let block = get_sample_block();
+    spawn_block_definition(commands, asset_server, block);
+}
+
+fn spawn_block_definition(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    block: BlockDefinition,
+) {
     let font = asset_server.load("fonts/arcane_nine.otf");
     let text_font = TextFont {
         font,
         font_size: 100.0,
         ..default()
     };
+    let inputs = block.inputs.iter().map(|input| {
+        (
+            input.id,
+            (
+                InputConnection,
+                Connection {
+                    values: input.value,
+                },
+            ),
+        )
+    });
+    let outputs = block.outputs.iter().map(|output| {
+        (
+            output.id,
+            (
+                OutputConnection,
+                Connection {
+                    values: output.value,
+                },
+            ),
+        )
+    });
 
-    let size = IVec2::new(50, 80);
+    let inputs: Vec<_> = inputs
+        .map(|(id, con)| (id, ConnectionReference(commands.spawn(con).id())))
+        .collect();
+    let outputs: Vec<_> = outputs
+        .map(|(id, con)| (id, ConnectionReference(commands.spawn(con).id())))
+        .collect();
 
-    //region connections
-    let input1 = (
-        InputConnection,
-        Connection {
-            values: ConnectionValues::HalfByte(false, true, false, true),
-        },
-    );
-    let input2 = (
-        InputConnection,
-        Connection {
-            values: ConnectionValues::HalfByte(true, false, false, true),
-        },
-    );
-    let output1 = (
-        OutputConnection,
-        Connection {
-            values: ConnectionValues::HalfByte(false, false, true, false),
-        },
-    );
-    let output2 = (
-        OutputConnection,
-        Connection {
-            values: ConnectionValues::HalfByte(false, false, true, false),
-        },
-    );
-    let output3 = (
-        OutputConnection,
-        Connection {
-            values: ConnectionValues::HalfByte(false, false, true, false),
-        },
-    );
-    let output4 = (
-        OutputConnection,
-        Connection {
-            values: ConnectionValues::HalfByte(false, true, false, false),
-        },
-    );
-    let input1 = commands.spawn(input1).id();
-    let input2 = commands.spawn(input2).id();
-    let output1 = commands.spawn(output1).id();
-    let output2 = commands.spawn(output2).id();
-    let output3 = commands.spawn(output3).id();
-    let output4 = commands.spawn(output4).id();
-    //endregion
-    let wire1 = Wire {
-        connections: vec![
-            ConnectionReference(input1),
-            ConnectionReference(input2),
-            ConnectionReference(output1),
-            ConnectionReference(output2),
-            ConnectionReference(output4),
-        ],
-    };
-    commands.spawn(wire1);
+    let wires = block.wires.iter().map(|wire| {
+        wire.connections.iter().flat_map(|con| {
+            if (con.parent_block != block.id) {
+                warn!("get connections from sub blocks is not implemented yet");
+                // todo!("get connections from sub blocks (not blocks outside the one containing the wire and only one level deep)");
+                None
+            } else if let Some((_, connection)) = inputs.iter().find(|(id, _)| *id == con.id) {
+                Some(*connection)
+            } else if let Some((_, connection)) = outputs.iter().find(|(id, _)| *id == con.id) {
+                Some(*connection)
+            } else {
+                warn!(
+                    "could not find connection with id '{}' in block '{}",
+                    con.id, block.id
+                );
+                None
+            }
+        })
+    });
+    for wire in wires {
+        commands.spawn(Wire {
+            connections: wire.collect(),
+        });
+    }
+
     commands
         .spawn(BlockBundle {
             block_visuals: BlockVisuals {
-                size,
-                color: Color::from(RED),
+                size: block.size,
+                color: block.color,
             },
             block: Block {
-                inputs: vec![ConnectionReference(input1), ConnectionReference(input2)],
-                outputs: vec![
-                    ConnectionReference(output1),
-                    ConnectionReference(output2),
-                    ConnectionReference(output3),
-                    ConnectionReference(output4),
-                ],
+                inputs: inputs.into_iter().map(|(_, con)| con).collect(),
+                outputs: outputs.into_iter().map(|(_, con)| con).collect(),
             },
             global_transform: GlobalTransform::default(),
-            transform: Transform::default(),
+            transform: Transform::from_translation(block.pos.extend(0.)),
         })
-        .with_child(BlockLabelBundle::new("AND", size, text_font));
+        .with_child(BlockLabelBundle::new(block.name, block.size, text_font));
+}
+
+fn spawn_block_resources(// mut ev_asset
+) {
 }
 fn render_blocks(
     blocks: Query<(&BlockVisuals, &Transform)>,
@@ -437,7 +536,7 @@ fn update_connection_positions(
     mut connections: Query<&mut Transform, With<Connection>>,
     canvas: Res<Canvas>,
 ) {
-    for (block_visual, block, transform) in blocks.iter() {
+    blocks.iter().for_each(|(block_visual, block, transform)| {
         let size = block_visual.size.as_vec2() * canvas.zoom;
         let center = transform.translation().xy();
         let half_size = size / 2.0;
@@ -459,7 +558,7 @@ fn update_connection_positions(
             &mut connections,
             block.outputs.len(),
         );
-    }
+    });
 }
 fn update_connection_position<'a>(
     pos: Vec2,
@@ -547,9 +646,9 @@ fn draw_wires(
 }
 
 fn scale_labels(mut labels: Query<&mut Transform, With<CanvasText>>, canvas: Res<Canvas>) {
-    for mut transform in labels.iter_mut() {
+    labels.par_iter_mut().for_each(|mut transform| {
         transform.scale = Vec3::splat(canvas.zoom) * LABEL_SCALING_FACTOR;
-    }
+    });
 }
 
 fn update_connection_states(
