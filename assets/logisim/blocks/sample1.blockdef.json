@@ -1,0 +1,117 @@
+{
+  "id": 1,
+  "pos": [
+    0.0,
+    0.0
+  ],
+  "size": [
+    50,
+    80
+  ],
+  "name": "AND",
+  "color": {
+    "Srgba": {
+      "red": 1.0,
+      "green": 0.0,
+      "blue": 0.0,
+      "alpha": 1.0
+    }
+  },
+  "wires": [
+    {
+      "connections": [
+        {
+          "parent_block": 1,
+          "id": 1
+        },
+        {
+          "parent_block": 1,
+          "id": 2
+        },
+        {
+          "parent_block": 1,
+          "id": 3
+        },
+        {
+          "parent_block": 1,
+          "id": 4
+        },
+        {
+          "parent_block": 1,
+          "id": 6
+        }
+      ]
+    }
+  ],
+  "inputs": [
+    {
+      "id": 1,
+      "value": {
+        "HalfByte": [
+          false,
+          false,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "value": {
+        "HalfByte": [
+          true,
+          false,
+          false,
+          true
+        ]
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": 3,
+      "value": {
+        "HalfByte": [
+          false,
+          false,
+          false,
+          true
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "value": {
+        "HalfByte": [
+          false,
+          true,
+          false,
+          true
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "value": {
+        "HalfByte": [
+          false,
+          true,
+          false,
+          false
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "value": {
+        "HalfByte": [
+          true,
+          false,
+          true,
+          true
+        ]
+      }
+    }
+  ],
+  "inner_blocks": []
+}

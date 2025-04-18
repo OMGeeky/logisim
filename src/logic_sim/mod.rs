@@ -2,11 +2,22 @@ use crate::camera::Canvas;
 use bevy::color::palettes::basic::{GREEN, RED, WHITE};
 use bevy::prelude::*;
 use bevy::text::TextBounds;
+use bevy_common_assets::json::JsonAssetPlugin;
+use serde::Deserialize;
 use std::ops::BitOr;
 
 const LABEL_SCALING_FACTOR: f32 = 0.2;
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+enum AppState {
+    #[default]
+    Loading,
+    Running,
+}
+
+#[derive(Resource)]
+struct BlockDefinitionHandle(Handle<BlockDefinition>);
+#[derive(Deserialize, Asset, TypePath, Debug, Clone)]
 pub struct BlockDefinition {
     id: usize,
     pos: Vec2,
@@ -18,22 +29,23 @@ pub struct BlockDefinition {
     inputs: Vec<ConnectionDefinition>,
     outputs: Vec<ConnectionDefinition>,
 }
-#[derive(Resource, Debug, Clone)]
+#[derive(Deserialize, Asset, TypePath, Debug, Clone)]
 pub struct WireDefinition {
     connections: Vec<ConnectionDefinitionRef>,
 }
-#[derive(Resource, Debug, Clone, Copy)]
+#[derive(Deserialize, Asset, TypePath, Debug, Clone, Copy)]
 pub struct ConnectionDefinition {
     id: usize,
     value: ConnectionValues,
 }
-#[derive(Resource, Debug, Clone, Copy)]
+#[derive(Deserialize, Asset, TypePath, Debug, Clone, Copy)]
 pub struct ConnectionDefinitionRef {
     parent_block: usize,
     id: usize,
 }
 #[derive(Bundle, Debug)]
 pub struct BlockBundle {
+    id: BlockId,
     block: Block,
     transform: Transform,
     global_transform: GlobalTransform,
@@ -72,6 +84,10 @@ pub struct BlockVisuals {
 #[derive(Component, Debug, Copy, Clone)]
 pub struct ConnectionReference(Entity);
 #[derive(Component, Debug)]
+pub struct BlockId {
+    id: usize,
+}
+#[derive(Component, Debug)]
 pub struct Block {
     inputs: Vec<ConnectionReference>,
     outputs: Vec<ConnectionReference>,
@@ -91,7 +107,7 @@ pub struct OutputConnection;
 pub struct Connection {
     values: ConnectionValues,
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Deserialize, Debug, Clone, Copy)]
 pub enum ConnectionValues {
     Single(bool),
     HalfByte(bool, bool, bool, bool),
@@ -353,8 +369,14 @@ impl Plugin for LogicSimPlugin {
         app
             //hi
             // .insert_resource(get_sample_block())
+            .add_plugins(JsonAssetPlugin::<BlockDefinition>::new(&["blockdef.json"]))
             .add_systems(Startup, setup)
-            .add_systems(Update, spawn_block_resources)
+            .init_asset::<BlockDefinition>()
+            .init_state::<AppState>()
+            .add_systems(
+                Update,
+                spawn_block_definition_from_asset.run_if(in_state(AppState::Loading)),
+            )
             .add_systems(
                 Update,
                 (
@@ -429,11 +451,34 @@ fn get_sample_block() -> BlockDefinition {
         ],
     }
 }
-fn setup(commands: Commands, asset_server: Res<AssetServer>) {
-    let block = get_sample_block();
-    spawn_block_definition(commands, asset_server, block);
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let block_def =
+        BlockDefinitionHandle(asset_server.load("logisim/blocks/sample1.blockdef.json"));
+    commands.insert_resource(block_def);
+
+    // let block = get_sample_block();
+    // spawn_block_definition(commands, asset_server, block);
 }
 
+fn spawn_block_definition_from_asset(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    block: Res<BlockDefinitionHandle>,
+    mut blocks: ResMut<Assets<BlockDefinition>>,
+    mut state: ResMut<NextState<AppState>>,
+    spawned_blocks: Query<(Entity, &BlockId)>,
+) {
+    if let Some(block) = blocks.remove(block.0.id()) {
+        let spawned_block = spawned_blocks
+            .iter()
+            .find_map(|(e, b)| if b.id == block.id { Some(e) } else { None });
+        if let Some(e) = spawned_block {
+            commands.entity(e).despawn_recursive();
+        }
+        spawn_block_definition(commands, asset_server, block);
+        state.set(AppState::Running)
+    }
+}
 fn spawn_block_definition(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -502,6 +547,7 @@ fn spawn_block_definition(
 
     commands
         .spawn(BlockBundle {
+            id: BlockId { id: block.id },
             block_visuals: BlockVisuals {
                 size: block.size,
                 color: block.color,
@@ -516,9 +562,6 @@ fn spawn_block_definition(
         .with_child(BlockLabelBundle::new(block.name, block.size, text_font));
 }
 
-fn spawn_block_resources(// mut ev_asset
-) {
-}
 fn render_blocks(
     blocks: Query<(&BlockVisuals, &Transform)>,
     canvas: Res<Canvas>,
