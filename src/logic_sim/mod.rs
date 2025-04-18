@@ -55,8 +55,6 @@ pub struct BlockBundle {
 }
 
 #[derive(Component, Debug)]
-pub struct CanvasText;
-#[derive(Component, Debug)]
 pub struct BlockVisuals {
     size: IVec2,
     color: Color,
@@ -390,13 +388,13 @@ fn spawn_block_definition_from_asset(
         if let Some(e) = spawned_block {
             commands.entity(e).despawn_recursive();
         }
-        spawn_block_definition(commands, asset_server, block);
+        spawn_block_definition(&mut commands, &asset_server, block);
         state.set(AppState::Running)
     }
 }
 fn spawn_block_definition(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    mut commands: &mut Commands,
+    asset_server: &Res<AssetServer>,
     block: BlockDefinition,
 ) {
     let font = asset_server.load("fonts/arcane_nine.otf");
@@ -435,29 +433,34 @@ fn spawn_block_definition(
         .map(|(id, con)| (id, ConnectionReference(commands.spawn(con).id())))
         .collect();
 
+    // let child_blocks = block.inner_blocks.iter().map(|block| {
+    //     spawn_block_definition(commands, asset_server, block.clone());
+    // });
+
     let wires = block.wires.iter().map(|wire| {
-        wire.connections.iter().flat_map(|con| {
-            if (con.parent_block != block.id) {
-                warn!("get connections from sub blocks is not implemented yet");
-                // todo!("get connections from sub blocks (not blocks outside the one containing the wire and only one level deep)");
-                None
-            } else if let Some((_, connection)) = inputs.iter().find(|(id, _)| *id == con.id) {
-                Some(*connection)
-            } else if let Some((_, connection)) = outputs.iter().find(|(id, _)| *id == con.id) {
-                Some(*connection)
-            } else {
-                warn!(
-                    "could not find connection with id '{}' in block '{}",
-                    con.id, block.id
-                );
-                None
-            }
-        })
+        wire.connections
+            .iter()
+            .flat_map(|con| {
+                if (con.parent_block != block.id) {
+                    warn!("get connections from sub blocks is not implemented yet");
+                    // todo!("get connections from sub blocks (not blocks outside the one containing the wire and only one level deep)");
+                    None
+                } else if let Some((_, connection)) = inputs.iter().find(|(id, _)| *id == con.id) {
+                    Some(*connection)
+                } else if let Some((_, connection)) = outputs.iter().find(|(id, _)| *id == con.id) {
+                    Some(*connection)
+                } else {
+                    warn!(
+                        "could not find connection with id '{}' in block '{}",
+                        con.id, block.id
+                    );
+                    None
+                }
+            })
+            .collect()
     });
     for wire in wires {
-        commands.spawn(Wire {
-            connections: wire.collect(),
-        });
+        commands.spawn(Wire { connections: wire });
     }
 
     commands

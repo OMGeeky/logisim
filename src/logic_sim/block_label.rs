@@ -6,6 +6,8 @@ impl Plugin for BlockLabelPlugin {
     }
 }
 
+#[derive(Component, Debug)]
+pub struct CanvasText;
 #[derive(Bundle, Debug)]
 pub struct BlockLabelBundle {
     text: Text2d,
