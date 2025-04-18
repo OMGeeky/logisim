@@ -93,12 +93,7 @@
     {
       "id": 5,
       "value": {
-        "HalfByte": [
-          false,
-          true,
-          false,
-          false
-        ]
+        "X16": 3395
       }
     },
     {

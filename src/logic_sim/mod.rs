@@ -563,7 +563,7 @@ fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: 
             if index >= size {
                 break 'rows;
             }
-            let pos = pos + Vec2::new(x as f32, (rows - y - 1) as f32) * connection_bit_size
+            let pos = pos + Vec2::new((columns - x - 1) as f32, (y) as f32) * connection_bit_size
                 - half_offset
                 + half_one_size;
             let value = connection.values.get_by_index(index as usize);
