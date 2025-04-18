@@ -1,10 +1,12 @@
 use crate::camera::Canvas;
+use crate::logic_sim::block_label::{BlockLabelBundle, BlockLabelPlugin};
 use bevy::color::palettes::basic::{GREEN, RED, WHITE};
 use bevy::prelude::*;
 use bevy::text::TextBounds;
 use bevy_common_assets::json::JsonAssetPlugin;
 use serde::Deserialize;
 use std::ops::BitOr;
+pub mod block_label;
 
 const LABEL_SCALING_FACTOR: f32 = 0.2;
 
@@ -50,28 +52,6 @@ pub struct BlockBundle {
     transform: Transform,
     global_transform: GlobalTransform,
     block_visuals: BlockVisuals,
-}
-#[derive(Bundle, Debug)]
-pub struct BlockLabelBundle {
-    text: Text2d,
-    font: TextFont,
-    text_layout: TextLayout,
-    text_bounds: TextBounds,
-    transform: Transform,
-    marker: CanvasText,
-}
-
-impl BlockLabelBundle {
-    fn new(name: impl Into<String>, size: IVec2, font: TextFont) -> Self {
-        Self {
-            text: Text2d(name.into()),
-            font,
-            text_layout: TextLayout::new(JustifyText::Justified, LineBreak::WordOrCharacter),
-            text_bounds: TextBounds::from(size.as_vec2() * (1.0 / LABEL_SCALING_FACTOR)),
-            transform: Transform::from_translation(Vec3::Z),
-            marker: CanvasText,
-        }
-    }
 }
 
 #[derive(Component, Debug)]
@@ -172,7 +152,7 @@ impl ConnectionValues {
             | ConnectionValues::HalfByte(_, _, _, _)
             | ConnectionValues::Byte(_)
             | ConnectionValues::X16(_) => unreachable!(),
-            ConnectionValues::X32(b) => b as u32,
+            ConnectionValues::X32(b) => b,
             ConnectionValues::X64(b) => b as u32,
             ConnectionValues::X128(b) => b as u32,
             ConnectionValues::X256(b, _) => b as u32,
@@ -370,6 +350,7 @@ impl Plugin for LogicSimPlugin {
             //hi
             // .insert_resource(get_sample_block())
             .add_plugins(JsonAssetPlugin::<BlockDefinition>::new(&["blockdef.json"]))
+            .add_plugins(BlockLabelPlugin)
             .add_systems(Startup, setup)
             .init_asset::<BlockDefinition>()
             .init_state::<AppState>()
@@ -382,82 +363,16 @@ impl Plugin for LogicSimPlugin {
                 (
                     (update_connection_positions, draw_connections).chain(),
                     render_blocks,
-                    scale_labels,
                     draw_wires,
                     update_connection_states,
                 ),
             );
     }
 }
-fn get_sample_block() -> BlockDefinition {
-    BlockDefinition {
-        id: 1,
-        pos: Vec2::new(0.0, 0.0),
-        size: IVec2::new(50, 80),
-        name: "AND".to_string(),
-        color: Color::from(RED),
-        inner_blocks: vec![],
-        wires: vec![WireDefinition {
-            connections: vec![
-                ConnectionDefinitionRef {
-                    parent_block: 1,
-                    id: 1,
-                },
-                ConnectionDefinitionRef {
-                    parent_block: 1,
-                    id: 2,
-                },
-                ConnectionDefinitionRef {
-                    parent_block: 1,
-                    id: 3,
-                },
-                ConnectionDefinitionRef {
-                    parent_block: 1,
-                    id: 4,
-                },
-                ConnectionDefinitionRef {
-                    parent_block: 1,
-                    id: 6,
-                },
-            ],
-        }],
-        inputs: vec![
-            ConnectionDefinition {
-                id: 1,
-                value: ConnectionValues::HalfByte(false, true, false, true),
-            },
-            ConnectionDefinition {
-                id: 2,
-                value: ConnectionValues::HalfByte(true, false, false, true),
-            },
-        ],
-        outputs: vec![
-            ConnectionDefinition {
-                id: 3,
-                value: ConnectionValues::HalfByte(false, false, true, false),
-            },
-            ConnectionDefinition {
-                id: 4,
-                value: ConnectionValues::HalfByte(false, false, true, false),
-            },
-            ConnectionDefinition {
-                id: 5,
-                value: ConnectionValues::Byte(0b0101_1010),
-            },
-            ConnectionDefinition {
-                id: 6,
-                value: ConnectionValues::HalfByte(false, true, false, false),
-            },
-        ],
-    }
-}
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
     let block_def =
         BlockDefinitionHandle(asset_server.load("logisim/blocks/sample1.blockdef.json"));
     commands.insert_resource(block_def);
-
-    // let block = get_sample_block();
-    // spawn_block_definition(commands, asset_server, block);
 }
 
 fn spawn_block_definition_from_asset(
@@ -686,12 +601,6 @@ fn draw_wires(
             gizmos.line_2d(average_pos, connection_pos, WHITE);
         }
     }
-}
-
-fn scale_labels(mut labels: Query<&mut Transform, With<CanvasText>>, canvas: Res<Canvas>) {
-    labels.par_iter_mut().for_each(|mut transform| {
-        transform.scale = Vec3::splat(canvas.zoom) * LABEL_SCALING_FACTOR;
-    });
 }
 
 fn update_connection_states(
