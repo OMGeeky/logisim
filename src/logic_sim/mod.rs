@@ -47,8 +47,7 @@ pub struct ConnectionDefinitionRef {
 }
 #[derive(Bundle, Debug)]
 pub struct BlockBundle {
-    id: BlockId,
-    block: Block,
+    id: Block,
     transform: Transform,
     global_transform: GlobalTransform,
     block_visuals: BlockVisuals,
@@ -61,14 +60,13 @@ pub struct BlockVisuals {
 }
 #[derive(Component, Debug, Copy, Clone)]
 pub struct ConnectionReference(Entity);
-#[derive(Component, Debug)]
-pub struct BlockId {
-    id: usize,
-}
+#[derive(Component, Debug, Copy, Clone)]
+pub struct BlockReference(Entity);
 #[derive(Component, Debug)]
 pub struct Block {
-    inputs: Vec<ConnectionReference>,
-    outputs: Vec<ConnectionReference>,
+    id: usize,
+    input_count: usize,
+    output_count: usize,
 }
 #[derive(Component, Debug)]
 #[require(Transform)]
@@ -83,6 +81,7 @@ pub struct OutputConnection;
 #[derive(Component, Debug)]
 #[require(Transform)]
 pub struct Connection {
+    index: usize,
     values: ConnectionValues,
 }
 #[derive(Deserialize, Debug, Clone, Copy)]
@@ -379,7 +378,7 @@ fn spawn_block_definition_from_asset(
     block: Res<BlockDefinitionHandle>,
     mut blocks: ResMut<Assets<BlockDefinition>>,
     mut state: ResMut<NextState<AppState>>,
-    spawned_blocks: Query<(Entity, &BlockId)>,
+    spawned_blocks: Query<(Entity, &Block)>,
 ) {
     if let Some(block) = blocks.remove(block.0.id()) {
         let spawned_block = spawned_blocks
@@ -388,12 +387,14 @@ fn spawn_block_definition_from_asset(
         if let Some(e) = spawned_block {
             commands.entity(e).despawn_recursive();
         }
-        spawn_block_definition(&mut commands, &asset_server, block);
+        commands.spawn_empty().with_children(|c| {
+            spawn_block_definition(c, &asset_server, block);
+        });
         state.set(AppState::Running)
     }
 }
 fn spawn_block_definition(
-    mut commands: &mut Commands,
+    commands: &mut ChildBuilder,
     asset_server: &Res<AssetServer>,
     block: BlockDefinition,
 ) {
@@ -403,81 +404,95 @@ fn spawn_block_definition(
         font_size: 100.0,
         ..default()
     };
-    let inputs = block.inputs.iter().map(|input| {
+    let mut block_id = commands.spawn(BlockBundle {
+        id: Block {
+            id: block.id,
+            input_count: block.inputs.len(),
+            output_count: block.outputs.len(),
+        },
+        block_visuals: BlockVisuals {
+            size: block.size,
+            color: block.color,
+        },
+        global_transform: GlobalTransform::default(),
+        transform: Transform::from_translation(block.pos.extend(0.)),
+    });
+    block_id.with_child(BlockLabelBundle::new(block.name, block.size, text_font));
+    let id = block_id.id();
+    let inputs = block.inputs.iter().enumerate().map(|(i, input)| {
         (
             input.id,
             (
+                BlockReference(id),
                 InputConnection,
                 Connection {
+                    index: i,
                     values: input.value,
                 },
             ),
         )
     });
-    let outputs = block.outputs.iter().map(|output| {
+    let outputs = block.outputs.iter().enumerate().map(|(i, output)| {
         (
             output.id,
             (
+                BlockReference(id),
                 OutputConnection,
                 Connection {
+                    index: i,
                     values: output.value,
                 },
             ),
         )
     });
 
-    let inputs: Vec<_> = inputs
-        .map(|(id, con)| (id, ConnectionReference(commands.spawn(con).id())))
-        .collect();
-    let outputs: Vec<_> = outputs
-        .map(|(id, con)| (id, ConnectionReference(commands.spawn(con).id())))
-        .collect();
+    block_id.with_children(|x| {
+        let inputs: Vec<_> = inputs
+            .map(|(id, con)| (id, ConnectionReference(x.spawn(con).id())))
+            .collect();
+        let outputs: Vec<_> = outputs
+            .map(|(id, con)| (id, ConnectionReference(x.spawn(con).id())))
+            .collect();
 
-    // let child_blocks = block.inner_blocks.iter().map(|block| {
-    //     spawn_block_definition(commands, asset_server, block.clone());
-    // });
+        // let child_blocks = block.inner_blocks.iter().map(|block| {
+        //     spawn_block_definition(x, asset_server, block.clone());
+        // });
 
-    let wires = block.wires.iter().map(|wire| {
-        wire.connections
+        let wires = block
+            .wires
             .iter()
-            .flat_map(|con| {
-                if (con.parent_block != block.id) {
-                    warn!("get connections from sub blocks is not implemented yet");
-                    // todo!("get connections from sub blocks (not blocks outside the one containing the wire and only one level deep)");
-                    None
-                } else if let Some((_, connection)) = inputs.iter().find(|(id, _)| *id == con.id) {
-                    Some(*connection)
-                } else if let Some((_, connection)) = outputs.iter().find(|(id, _)| *id == con.id) {
-                    Some(*connection)
-                } else {
-                    warn!(
-                        "could not find connection with id '{}' in block '{}",
-                        con.id, block.id
-                    );
-                    None
-                }
+            .map(|wire| {
+                wire.connections
+                    .iter()
+                    .flat_map(|con| {
+                        if (con.parent_block != block.id) {
+                            warn!("get connections from sub blocks is not implemented yet");
+                            // todo!("get connections from sub blocks (not blocks outside the one containing the wire and only one level deep)");
+                            None
+                        } else if let Some((_, connection)) =
+                            inputs.iter().find(|(id, _)| *id == con.id)
+                        {
+                            Some(*connection)
+                        } else if let Some((_, connection)) =
+                            outputs.iter().find(|(id, _)| *id == con.id)
+                        {
+                            Some(*connection)
+                        } else {
+                            warn!(
+                                "could not find connection with id '{}' in block '{}",
+                                con.id, block.id
+                            );
+                            None
+                        }
+                    })
+                    .collect()
             })
-            .collect()
-    });
-    for wire in wires {
-        commands.spawn(Wire { connections: wire });
-    }
+            .map(|connections| Wire { connections });
 
-    commands
-        .spawn(BlockBundle {
-            id: BlockId { id: block.id },
-            block_visuals: BlockVisuals {
-                size: block.size,
-                color: block.color,
-            },
-            block: Block {
-                inputs: inputs.into_iter().map(|(_, con)| con).collect(),
-                outputs: outputs.into_iter().map(|(_, con)| con).collect(),
-            },
-            global_transform: GlobalTransform::default(),
-            transform: Transform::from_translation(block.pos.extend(0.)),
-        })
-        .with_child(BlockLabelBundle::new(block.name, block.size, text_font));
+        for wire in wires {
+            x.spawn(wire);
+        }
+    });
 }
 
 fn render_blocks(
@@ -493,50 +508,38 @@ fn render_blocks(
 }
 
 fn update_connection_positions(
-    blocks: Query<(&BlockVisuals, &Block, &GlobalTransform)>,
-    mut connections: Query<&mut Transform, With<Connection>>,
-    canvas: Res<Canvas>,
+    blocks: Query<(&BlockVisuals, &Block, Option<&InputConnection>)>,
+    mut connections: Query<(&mut Transform, &BlockReference, &Connection)>,
 ) {
-    blocks.iter().for_each(|(block_visual, block, transform)| {
-        let size = block_visual.size.as_vec2() * canvas.zoom;
-        let center = transform.translation().xy();
-        let half_size = size / 2.0;
-        let top = center.y + half_size.y;
-        let left = center.x - half_size.x;
-        let right = center.x + half_size.x;
+    connections
+        .iter_mut()
+        .for_each(|(mut transform, block, con)| {
+            if let Ok((block_visual, block, input)) = blocks.get(block.0) {
+                let size = block_visual.size.as_vec2();
 
-        update_connection_position(
-            Vec2::new(left, top),
-            size.y,
-            block.inputs.iter(),
-            &mut connections,
-            block.inputs.len(),
-        );
-        update_connection_position(
-            Vec2::new(right, top),
-            size.y,
-            block.outputs.iter(),
-            &mut connections,
-            block.outputs.len(),
-        );
-    });
-}
-fn update_connection_position<'a>(
-    pos: Vec2,
-    available_height: f32,
-    connection_refs: impl Iterator<Item = &'a ConnectionReference>,
-    connections: &mut Query<&mut Transform, With<Connection>>,
-    connections_count: usize,
-) {
-    let spacing = available_height / (connections_count + 1) as f32;
+                let half_size = size / 2.0;
+                let top = half_size.y;
+                let left = -half_size.x;
+                let right = half_size.x;
+                let pos;
+                let count;
+                if input.is_some() {
+                    pos = Vec2::new(left, top);
+                    count = block.input_count;
+                } else {
+                    pos = Vec2::new(right, top);
+                    count = block.output_count;
+                }
+                let spacing = size.y / (count + 1) as f32;
 
-    for (i, connection) in connection_refs.enumerate() {
-        let pos = pos - Vec2::Y * spacing * (i + 1) as f32;
-        if let Ok(mut transform) = connections.get_mut(connection.0) {
-            transform.translation = pos.extend(0.0);
-        }
-    }
+                let pos = pos - Vec2::Y * spacing * (con.index + 1) as f32;
+                println!("{:?}", pos);
+                let x = &mut transform;
+                x.translation = pos.extend(0.0);
+            }
+        });
 }
+
 fn draw_connections(
     connections: Query<(&Connection, &GlobalTransform)>,
     canvas: Res<Canvas>,
@@ -547,6 +550,7 @@ fn draw_connections(
         draw_connection(pos, connection, &canvas, &mut gizmos);
     }
 }
+
 fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: &mut Gizmos) {
     const CONNECTION_BIT_SIZE: f32 = 10.0;
     let connection_bit_size = CONNECTION_BIT_SIZE * canvas.zoom;
