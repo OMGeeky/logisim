@@ -1,6 +1,7 @@
 use crate::camera::CameraPlugin;
 use crate::logic_sim::LogicSimPlugin;
 use bevy::prelude::*;
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 
 mod fps_counter;
 mod logic_sim;
@@ -14,6 +15,7 @@ fn main() {
             fps_counter::SimpleFpsCounterPlugin,
             // ShapeFollowPlugin,
             LogicSimPlugin,
+            WorldInspectorPlugin::new(),
         ))
         .run();
 }

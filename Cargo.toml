@@ -8,7 +8,7 @@ bevy = { version = "0.15.0", features = ["bevy_dev_tools"] }
 iyes_perf_ui = "0.4.0"
 serde = { version = "1.0.219", features = ["derive"] }
 bevy_common_assets = { version = "0.12.0", features = ["json"] }
-
+bevy-inspector-egui = "0.30.0"
 
 # Enable more optimization in the release profile at the cost of compile time.
 [profile.release]
