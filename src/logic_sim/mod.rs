@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::ops::BitOr;
 pub mod block_label;
 
+const CONNECTION_SCALE_FACTOR: f32 = 10.0;
 const LABEL_SCALING_FACTOR: f32 = 0.2;
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
@@ -16,6 +17,10 @@ enum AppState {
     Loading,
     Running,
 }
+
+#[derive(Component)]
+#[require(Transform)]
+struct Root;
 
 #[derive(Resource)]
 struct BlockDefinitionHandle(Handle<BlockDefinition>);
@@ -45,13 +50,6 @@ pub struct ConnectionDefinitionRef {
     parent_block: usize,
     id: usize,
 }
-#[derive(Bundle, Debug)]
-pub struct BlockBundle {
-    id: Block,
-    transform: Transform,
-    global_transform: GlobalTransform,
-    block_visuals: BlockVisuals,
-}
 
 #[derive(Component, Debug)]
 pub struct BlockVisuals {
@@ -63,11 +61,13 @@ pub struct ConnectionReference(Entity);
 #[derive(Component, Debug, Copy, Clone)]
 pub struct BlockReference(Entity);
 #[derive(Component, Debug)]
+#[require(Transform, Mesh2d, MeshMaterial2d<ColorMaterial>)]
 pub struct Block {
     id: usize,
     input_count: usize,
     output_count: usize,
 }
+
 #[derive(Component, Debug)]
 #[require(Transform)]
 pub struct Wire {
@@ -79,7 +79,7 @@ pub struct InputConnection;
 pub struct OutputConnection;
 
 #[derive(Component, Debug)]
-#[require(Transform)]
+#[require(Transform, Mesh2d, MeshMaterial2d<ColorMaterial>)]
 pub struct Connection {
     index: usize,
     values: ConnectionValues,
@@ -344,8 +344,7 @@ pub struct LogicSimPlugin;
 impl Plugin for LogicSimPlugin {
     fn build(&self, app: &mut App) {
         app
-            //hi
-            // .insert_resource(get_sample_block())
+            //
             .add_plugins(JsonAssetPlugin::<BlockDefinition>::new(&["blockdef.json"]))
             .add_plugins(BlockLabelPlugin)
             .add_systems(Startup, setup)
@@ -355,15 +354,8 @@ impl Plugin for LogicSimPlugin {
                 Update,
                 spawn_block_definition_from_asset.run_if(in_state(AppState::Loading)),
             )
-            .add_systems(
-                Update,
-                (
-                    (update_connection_positions, draw_connections).chain(),
-                    render_blocks,
-                    draw_wires,
-                    update_connection_states,
-                ),
-            );
+            .add_systems(Update, (draw_connections, draw_wires))
+            .add_systems(Update, update_connection_states);
     }
 }
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -378,6 +370,8 @@ fn spawn_block_definition_from_asset(
     block: Res<BlockDefinitionHandle>,
     mut blocks: ResMut<Assets<BlockDefinition>>,
     mut state: ResMut<NextState<AppState>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
     spawned_blocks: Query<(Entity, &Block)>,
 ) {
     if let Some(block) = blocks.remove(block.0.id()) {
@@ -387,43 +381,64 @@ fn spawn_block_definition_from_asset(
         if let Some(e) = spawned_block {
             commands.entity(e).despawn_recursive();
         }
-        commands.spawn_empty().with_children(|c| {
-            spawn_block_definition(c, &asset_server, block);
+        commands.spawn(Root).with_children(|c| {
+            spawn_block_definition(c, &asset_server, &mut meshes, &mut materials, block);
         });
         state.set(AppState::Running)
     }
 }
+
 fn spawn_block_definition(
     commands: &mut ChildBuilder,
     asset_server: &Res<AssetServer>,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
     block: BlockDefinition,
 ) {
     let font = asset_server.load("fonts/arcane_nine.otf");
+    let mesh = meshes.add(Rectangle::new(block.size.x as f32, block.size.y as f32));
+    let block_material = materials.add(block.color);
+    let rectangle = meshes.add(Rectangle::new(
+        1.0 * CONNECTION_SCALE_FACTOR,
+        1.0 * CONNECTION_SCALE_FACTOR,
+    ));
+    let connection_material = materials.add(Color::BLACK);
     let text_font = TextFont {
         font,
         font_size: 100.0,
         ..default()
     };
-    let mut block_id = commands.spawn(BlockBundle {
-        id: Block {
+    let block_size = block.size.as_vec2();
+    let input_count = block.inputs.len();
+    let output_count = block.outputs.len();
+    let mut block_id = commands.spawn((
+        Name::new(format!("Block: {}", block.id)),
+        Block {
             id: block.id,
-            input_count: block.inputs.len(),
-            output_count: block.outputs.len(),
+            input_count,
+            output_count,
         },
-        block_visuals: BlockVisuals {
-            size: block.size,
+        Mesh2d(mesh),
+        MeshMaterial2d(block_material),
+        BlockVisuals {
+            size: block_size.as_ivec2(),
             color: block.color,
         },
-        global_transform: GlobalTransform::default(),
-        transform: Transform::from_translation(block.pos.extend(0.)),
-    });
+        Transform::from_translation(block.pos.extend(0.0)),
+    ));
     block_id.with_child(BlockLabelBundle::new(block.name, block.size, text_font));
     let id = block_id.id();
     let inputs = block.inputs.iter().enumerate().map(|(i, input)| {
+        let pos =
+            get_connection_pos_from_index(block_size, input_count, ConnectionPosition::Input, i);
         (
             input.id,
             (
+                Name::new(format!("Input: {}:{}", i, id)),
+                Mesh2d(rectangle.clone()),
+                MeshMaterial2d(connection_material.clone()),
                 BlockReference(id),
+                Transform::from_translation(pos.extend(2.0)),
                 InputConnection,
                 Connection {
                     index: i,
@@ -433,11 +448,17 @@ fn spawn_block_definition(
         )
     });
     let outputs = block.outputs.iter().enumerate().map(|(i, output)| {
+        let pos =
+            get_connection_pos_from_index(block_size, output_count, ConnectionPosition::Output, i);
         (
             output.id,
             (
+                Name::new(format!("Output: {}:{}", i, id)),
+                Mesh2d(rectangle.clone()),
+                MeshMaterial2d(connection_material.clone()),
                 BlockReference(id),
                 OutputConnection,
+                Transform::from_translation(pos.extend(1.0)),
                 Connection {
                     index: i,
                     values: output.value,
@@ -454,9 +475,9 @@ fn spawn_block_definition(
             .map(|(id, con)| (id, ConnectionReference(x.spawn(con).id())))
             .collect();
 
-        // let child_blocks = block.inner_blocks.iter().map(|block| {
-        //     spawn_block_definition(x, asset_server, block.clone());
-        // });
+        let child_blocks = block.inner_blocks.iter().map(|block| {
+            spawn_block_definition(x, asset_server, meshes, materials, block.clone());
+        });
 
         let wires = block
             .wires
@@ -487,57 +508,42 @@ fn spawn_block_definition(
                     })
                     .collect()
             })
-            .map(|connections| Wire { connections });
+            .enumerate()
+            .map(|(i, connections)| (Wire { connections }, Name::new(format!("Wire: {}", i))));
 
         for wire in wires {
             x.spawn(wire);
         }
     });
 }
-
-fn render_blocks(
-    blocks: Query<(&BlockVisuals, &Transform)>,
-    canvas: Res<Canvas>,
-    mut gizmos: Gizmos,
-) {
-    for (block_visual, transform) in blocks.iter() {
-        let size = block_visual.size.as_vec2() * canvas.zoom;
-        let center = transform.translation.xy();
-        gizmos.rect_2d(center, size, block_visual.color);
-    }
+#[derive(Debug, Copy, Clone)]
+enum ConnectionPosition {
+    Input,
+    Output,
 }
-
-fn update_connection_positions(
-    blocks: Query<(&BlockVisuals, &Block, Option<&InputConnection>)>,
-    mut connections: Query<(&mut Transform, &BlockReference, &Connection)>,
-) {
-    connections
-        .iter_mut()
-        .for_each(|(mut transform, block, con)| {
-            if let Ok((block_visual, block, input)) = blocks.get(block.0) {
-                let size = block_visual.size.as_vec2();
-
-                let half_size = size / 2.0;
-                let top = half_size.y;
-                let left = -half_size.x;
-                let right = half_size.x;
-                let pos;
-                let count;
-                if input.is_some() {
-                    pos = Vec2::new(left, top);
-                    count = block.input_count;
-                } else {
-                    pos = Vec2::new(right, top);
-                    count = block.output_count;
-                }
-                let spacing = size.y / (count + 1) as f32;
-
-                let pos = pos - Vec2::Y * spacing * (con.index + 1) as f32;
-                println!("{:?}", pos);
-                let x = &mut transform;
-                x.translation = pos.extend(0.0);
-            }
-        });
+fn get_connection_pos_from_index(
+    size: Vec2,
+    count: usize,
+    anchor: ConnectionPosition,
+    index: usize,
+) -> Vec2 {
+    let size = size;
+    let half_size = size / 2.0;
+    let top = half_size.y;
+    let left = -half_size.x;
+    let right = half_size.x;
+    let pos;
+    match anchor {
+        ConnectionPosition::Input => {
+            pos = Vec2::new(left, top);
+        }
+        ConnectionPosition::Output => {
+            pos = Vec2::new(right, top);
+        }
+    }
+    let spacing = size.y / (count + 1) as f32;
+    let pos = pos - Vec2::Y * spacing * (index + 1) as f32;
+    pos
 }
 
 fn draw_connections(
@@ -547,22 +553,21 @@ fn draw_connections(
 ) {
     for (connection, transform) in connections.iter() {
         let pos = transform.translation().xy();
-        draw_connection(pos, connection, &canvas, &mut gizmos);
+        draw_connection(pos, connection, transform.scale(), &mut gizmos);
     }
 }
 
-fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: &mut Gizmos) {
+fn draw_connection(pos: Vec2, connection: &Connection, scale: Vec3, gizmos: &mut Gizmos) {
     const CONNECTION_BIT_SIZE: f32 = 10.0;
-    let connection_bit_size = CONNECTION_BIT_SIZE * canvas.zoom;
-    let connection_bit_half_size = connection_bit_size * 0.5;
+    let connection_bit_size = CONNECTION_BIT_SIZE * scale.xy();
+    let connection_bit_half_size_x = connection_bit_size.x * 0.5;
 
     let size = connection.values.len() as u32;
     let rows = if size > 8 { 2 } else { 1 };
     let columns = (size as f32 / rows as f32).ceil() as u32;
 
     let half_offset = Vec2::new(columns as f32, rows as f32) * (connection_bit_size / 2.0);
-    let one_size = Vec2::new(connection_bit_size, connection_bit_size);
-    let half_one_size = one_size / 2.0;
+    let half_one_size = connection_bit_size / 2.0;
 
     'rows: for y in 0..rows {
         for x in 0..columns {
@@ -575,7 +580,7 @@ fn draw_connection(pos: Vec2, connection: &Connection, canvas: &Canvas, gizmos: 
                 + half_one_size;
             let value = connection.values.get_by_index(index as usize);
             let color = if value { GREEN } else { RED };
-            gizmos.circle_2d(pos, connection_bit_half_size, color);
+            gizmos.circle_2d(pos, connection_bit_half_size_x, color);
         }
     }
     gizmos.rect_2d(

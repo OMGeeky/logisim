@@ -29,7 +29,7 @@ impl BlockLabelBundle {
         }
     }
 }
-fn scale_labels(mut labels: Query<&mut Transform, With<CanvasText>>, canvas: Res<Canvas>) {
+fn scale_labels(mut labels: Query<&mut Transform, With<Root>>, canvas: Res<Canvas>) {
     labels.par_iter_mut().for_each(|mut transform| {
         transform.scale = Vec3::splat(canvas.zoom) * LABEL_SCALING_FACTOR;
     });
